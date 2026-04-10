@@ -1,0 +1,59 @@
+{
+  "name": "wow-dashboard-app",
+  "version": "1.0.0",
+  "description": "WoW Dashboard - AI-Powered Gearing Companion",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build-win": "electron-builder --win",
+    "build-mac": "electron-builder --mac",
+    "build-all": "electron-builder --win --mac"
+  },
+  "author": "ekeef",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.87.0",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.wowdashboard.app",
+    "productName": "WoW Dashboard",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "server.js",
+      "public/**/*",
+      "addon/**/*",
+      "bis-data.json",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "addon/WoWDashboard",
+        "to": "addon/WoWDashboard"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "public/icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/icon.icns",
+      "category": "public.app-category.games"
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "runAfterFinish": true
+    }
+  }
+}
