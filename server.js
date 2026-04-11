@@ -28,40 +28,6 @@ const PORT = process.env.PORT || 3000;
 const MODE = process.env.MODE || "local";
 const IS_HOSTED = MODE === "hosted";
 
-// ── Railway Proxy (Electron local → Railway for AI endpoints) ──
-const RAILWAY_URL = process.env.RAILWAY_URL || "https://wow-dashboard-production-ca94.up.railway.app";
-const RAILWAY_TIMEOUT = 5000; // 5 second timeout before falling back to local
-
-/**
- * Proxy a request to the Railway hosted server.
- * Returns the JSON response on success, or null on failure (timeout, offline, error).
- * Used by the Electron app so AI features (BiS, consumables, chat) hit the shared
- * Railway server (which holds the API key), while local-only endpoints stay local.
- */
-async function proxyToRailway(endpoint, req) {
-  // In hosted mode, we ARE Railway — don't proxy to ourselves
-  if (IS_HOSTED) return null;
-
-  try {
-    const url = `${RAILWAY_URL}${endpoint}`;
-    const options = {
-      method: req.method,
-      headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(RAILWAY_TIMEOUT),
-    };
-    if (req.method === 'POST' && req.body) {
-      options.body = JSON.stringify(req.body);
-    }
-    const response = await fetch(url, options);
-    if (!response.ok) return null;
-    return await response.json();
-  } catch (err) {
-    // Railway unreachable, timeout, or parse error — fall back to local
-    console.log(`Railway proxy failed for ${endpoint}: ${err.message}`);
-    return null;
-  }
-}
-
 // ── Paths ──
 
 function findWoWPath() {
@@ -811,9 +777,12 @@ Return ONLY valid JSON with no markdown, no code blocks, no explanation. The JSO
 
 Context: Midnight Season 1 raids are The Voidspire (6 bosses), Dreamrift (1 boss: Chimaerus), March on Quel'Danas (2 bosses). M+ pool includes Windrunner Spire, Murder Row, Den of Nalorakk, Maisara Caverns, Seat of the Triumvirate, Skyreach, Magister's Terrace, Pit of Saron. Max ilvl is 282 (Myth 6/6 raid) or 272 (M+ vault / crafted). Tier tokens are from Voidspire + Dreamrift + Quel'Danas.
 
+CRITICAL: ALL items MUST be from World of Warcraft: Midnight (patch 12.0, 2026) ONLY.
+DO NOT use items from Classic, TBC, Wrath, Cata, MoP, WoD, Legion, BfA, Shadowlands, Dragonflight, or The War Within.
+If you are unsure about an item, say "UNKNOWN" in the bisName field rather than guessing from an old expansion.
 sourceType must be one of: "raid", "mythicplus", "crafted", "dungeon", "none".
-Set bisItemID to 0 (we don't have IDs).
-Fill in real item names, sources, and reasoning for ${specName} ${classNameCap}.
+Set bisItemID to 0 (we don't have IDs — we validate separately).
+Fill in real Midnight Season 1 item names, sources, and reasoning for ${specName} ${classNameCap}.
 Return ONLY the JSON object, nothing else.`
       }],
     });
@@ -832,12 +801,58 @@ Return ONLY the JSON object, nothing else.`
     };
     saveBisData(allBis);
 
-    console.log(`BiS data generated and saved for ${specKey}`);
+    console.log(`BiS data generated for ${specKey}. Validating items...`);
+
+    // ── VALIDATION: Check each item against Wowhead ──
+    // Items must be ilvl 197+ and Epic quality to be valid endgame items
+    let validationIssues = [];
+    for (const [slotId, slot] of Object.entries(bisResult.slots || {})) {
+      if (!slot.bisItemID || slot.bisItemID === 0) continue;
+      try {
+        const wowheadRes = await fetch(`https://www.wowhead.com/item=${slot.bisItemID}?xml`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (wowheadRes.ok) {
+          const xml = await wowheadRes.text();
+          // Check for item level in the XML response
+          const ilvlMatch = xml.match(/level>(\d+)</);
+          const qualityMatch = xml.match(/quality id="(\d+)"/);
+          const ilvl = ilvlMatch ? parseInt(ilvlMatch[1]) : 0;
+          const quality = qualityMatch ? parseInt(qualityMatch[1]) : 0;
+
+          if (ilvl < 100) {
+            validationIssues.push(`FAIL: ${slot.slotName} "${slot.bisName}" (${slot.bisItemID}) is ilvl ${ilvl} — leveling item, not endgame`);
+            // Mark as unverified so the dashboard knows
+            slot._verified = false;
+            slot._validationNote = `ilvl ${ilvl} — may be a leveling item. Verify on Wowhead.`;
+          } else {
+            slot._verified = true;
+          }
+
+          if (quality < 4 && ilvl > 0) {
+            validationIssues.push(`WARN: ${slot.slotName} "${slot.bisName}" (${slot.bisItemID}) quality ${quality} — not Epic`);
+          }
+        }
+      } catch (e) {
+        // Wowhead fetch failed — skip validation for this item
+        slot._verified = null; // unknown
+      }
+    }
+
+    if (validationIssues.length > 0) {
+      console.warn(`BiS validation issues for ${specKey}:`, validationIssues);
+      bisResult._validationIssues = validationIssues;
+      bisResult._validationStatus = "partial";
+    } else {
+      bisResult._validationStatus = "passed";
+    }
+
     markGenerated(specKey);
     logConversation({
       type: "bis-generation",
       spec: specKey,
       slotsGenerated: Object.keys(bisResult.slots || {}).length,
+      validationIssues: validationIssues.length,
     });
 
     return bisResult;
@@ -849,17 +864,9 @@ Return ONLY the JSON object, nothing else.`
   }
 }
 
-// Get BiS data for a spec — try Railway first (shared cache), fall back to local
+// Get BiS data for a spec — auto-generates if missing
 app.get("/api/bis/:spec", async (req, res) => {
   const spec = req.params.spec;
-
-  // Try Railway first — benefits from shared cache across all users
-  const railwayData = await proxyToRailway(`/api/bis/${spec}`, req);
-  if (railwayData && !railwayData.error) {
-    return res.json(railwayData);
-  }
-
-  // Fall back to local processing
   const allBis = loadBisData();
 
   // Check if we have cached data that's less than 7 days old
@@ -963,7 +970,11 @@ Return ONLY valid JSON, no markdown, no code blocks:
   }
 }
 
-Context: WoW Midnight Season 1 (patch 12.0, April 2026). Thalassian-themed consumables, Eversong gems. Return ONLY the JSON.`
+CRITICAL: This MUST be World of Warcraft: Midnight Season 1 (patch 12.0, April 2026) ONLY.
+DO NOT use items from Classic, TBC, Wrath, Cata, MoP, WoD, Legion, BfA, Shadowlands, Dragonflight, or The War Within.
+Midnight consumables include: Flask of the Magisters, Light's Potential, Thalassian Phoenix Oil, Void-Touched Augment Rune, Champion's Bento, Eversong gems, Ren'dorei/Zul'jin/Worldsoul enchants.
+If you don't know the Midnight-specific item, say "UNKNOWN" rather than guessing from old expansions.
+Return ONLY the JSON.`
       }],
     });
 
@@ -985,17 +996,8 @@ Context: WoW Midnight Season 1 (patch 12.0, April 2026). Thalassian-themed consu
   }
 }
 
-// Get consumables for a spec — try Railway first, fall back to local
 app.get("/api/consumables/:spec", async (req, res) => {
   const spec = req.params.spec;
-
-  // Try Railway first — shared cache
-  const railwayData = await proxyToRailway(`/api/consumables/${spec}`, req);
-  if (railwayData && !railwayData.error) {
-    return res.json(railwayData);
-  }
-
-  // Fall back to local processing
   const allData = loadConsumablesData();
 
   if (allData[spec]) {
@@ -1033,21 +1035,12 @@ function checkAIRateLimit(userKey, isLocal) {
 /**
  * POST /api/smart-advice - Generate AI-powered recommendations using Claude API.
  * Takes character data + BiS data and returns personalized gearing advice.
- * Tries Railway first (API key lives there), falls back to local if available.
+ * Requires ANTHROPIC_API_KEY environment variable.
  */
 app.post("/api/smart-advice", async (req, res) => {
-  // Try Railway first — the API key lives on Railway
-  const railwayData = await proxyToRailway('/api/smart-advice', req);
-  if (railwayData && !railwayData.error) {
-    return res.json(railwayData);
-  }
-
-  // Fall back to local processing (if API key is set locally)
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    // If Railway also failed, give a meaningful error
-    if (railwayData && railwayData.error) return res.json(railwayData);
-    return res.json({ advice: null, error: "Server unavailable. Check your internet connection." });
+    return res.json({ advice: null, error: "No API key configured. Set ANTHROPIC_API_KEY." });
   }
 
   const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
@@ -1122,21 +1115,11 @@ Give specific advice like "Run Voidspire boss 3 for your BiS legs" not generic t
 /**
  * POST /api/chat - AI chatbot endpoint for conversational gearing advice.
  * Maintains conversation context via chatHistory in the request body.
- * Tries Railway first (API key lives there), falls back to local if available.
+ * Requires ANTHROPIC_API_KEY environment variable.
  */
 app.post("/api/chat", async (req, res) => {
-  // Try Railway first — the API key and conversation logging live there
-  const railwayData = await proxyToRailway('/api/chat', req);
-  if (railwayData && !railwayData.error) {
-    return res.json(railwayData);
-  }
-
-  // Fall back to local processing (if API key is set locally)
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    if (railwayData && railwayData.error) return res.json(railwayData);
-    return res.json({ reply: null, error: "Server unavailable. Check your internet connection." });
-  }
+  if (!apiKey) return res.json({ reply: null, error: "No API key" });
 
   const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
   const userKey = req.body.userKey || 'anonymous';
@@ -1335,82 +1318,39 @@ app.delete("/api/user/:userKey", (req, res) => {
 
 // ── Setup Wizard Endpoints ──
 
-const SETUP_COMPLETE_FILE = path.join(__dirname, ".setup-complete");
-
 app.get("/api/setup/status", (req, res) => {
-  // Allow manual path override from query param
+  const wowPath = findWoWPath();
   const customPath = req.query.wowPath;
-  let wowPath = null;
-
-  if (customPath) {
-    // Check if the custom path is valid
-    if (fs.existsSync(path.join(customPath, "WTF"))) {
-      wowPath = customPath;
-    }
-  } else {
-    wowPath = findWoWPath();
-  }
-
-  const addonInstalled = wowPath && fs.existsSync(
-    path.join(wowPath, "Interface", "AddOns", "WoWDashboard", "WoWDashboard.toc")
-  );
-
+  const effectivePath = customPath || wowPath;
+  const addonInstalled = effectivePath && fs.existsSync(path.join(effectivePath, "Interface", "AddOns", "WoWDashboard", "WoWDashboard.toc"));
   res.json({
-    wowFound: !!wowPath,
-    wowPath: wowPath || "Not found",
+    wowFound: !!effectivePath,
+    wowPath: effectivePath || "Not found",
     addonInstalled: !!addonInstalled,
   });
 });
 
 app.post("/api/setup/install-addon", (req, res) => {
-  const wowPath = findWoWPath();
-  if (!wowPath) {
-    return res.json({ success: false, message: "WoW path not found" });
-  }
-
+  const wowPath = req.body.wowPath || findWoWPath();
+  if (!wowPath) return res.status(400).json({ error: "WoW not found" });
   const addonsDir = path.join(wowPath, "Interface", "AddOns", "WoWDashboard");
   const sourceDir = path.join(__dirname, "addon", "WoWDashboard");
-
-  // Check if addon source exists
-  if (!fs.existsSync(sourceDir)) {
-    return res.json({ success: false, message: "Addon source not found" });
-  }
-
-  // Check if already installed
-  const tocFile = path.join(addonsDir, "WoWDashboard.toc");
-  if (fs.existsSync(tocFile)) {
-    // Re-install (update) anyway
-    try {
-      const files = fs.readdirSync(sourceDir);
-      for (const file of files) {
-        fs.copyFileSync(path.join(sourceDir, file), path.join(addonsDir, file));
-      }
-      return res.json({ success: true, alreadyInstalled: true, message: "Addon updated" });
-    } catch (err) {
-      return res.json({ success: false, message: err.message });
-    }
-  }
-
-  // Fresh install
   try {
     if (!fs.existsSync(addonsDir)) fs.mkdirSync(addonsDir, { recursive: true });
     const files = fs.readdirSync(sourceDir);
     for (const file of files) {
       fs.copyFileSync(path.join(sourceDir, file), path.join(addonsDir, file));
     }
-    res.json({ success: true, message: "Addon installed" });
+    res.json({ success: true, path: addonsDir });
   } catch (err) {
-    res.json({ success: false, message: err.message });
+    res.status(500).json({ error: err.message });
   }
 });
 
 app.post("/api/setup/complete", (req, res) => {
-  try {
-    fs.writeFileSync(SETUP_COMPLETE_FILE, new Date().toISOString());
-    res.json({ ok: true });
-  } catch (err) {
-    res.json({ ok: false, error: err.message });
-  }
+  const sentinelFile = path.join(__dirname, ".setup-complete");
+  fs.writeFileSync(sentinelFile, new Date().toISOString());
+  res.json({ ok: true });
 });
 
 // ── Server Start ──

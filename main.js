@@ -142,7 +142,7 @@ function createWindow() {
   if (isFirstRun()) {
     mainWindow.loadURL(`http://localhost:${PORT}/setup.html`);
   } else {
-    mainWindow.loadURL(`http://localhost:${PORT}`);
+    mainWindow.loadURL(`http://localhost:${PORT}/splash.html`);
   }
 
   mainWindow.on("closed", () => {

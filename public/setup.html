@@ -366,15 +366,22 @@
       height: 8px;
       border-radius: 50%;
       background: rgba(255, 215, 0, 0.15);
-      transition: all 0.4s ease;
+      transition: all 0.3s ease;
     }
 
     .dot.active {
       background: #ffd700;
       box-shadow: 0 0 10px rgba(255, 215, 0, 0.4);
+      cursor: pointer;
     }
 
     .dot.done {
+      background: rgba(255, 215, 0, 0.5);
+      cursor: pointer;
+    }
+
+    .dot:hover {
+      transform: scale(1.3);
       background: rgba(255, 215, 0, 0.5);
     }
 
@@ -441,9 +448,12 @@
       <h2 class="status-title">Detecting World of Warcraft</h2>
       <p class="status-detail" id="detect-status">Scanning common installation paths...</p>
       <div class="manual-path" id="manual-path">
-        <input type="text" id="wow-path-input" placeholder="C:/Program Files (x86)/World of Warcraft/_retail_" />
-        <p class="hint">Enter the path to your WoW _retail_ folder</p>
-        <button class="btn-small" id="btn-retry" onclick="retryDetect()">Retry</button>
+        <p class="hint" style="margin-bottom:8px;">We couldn't find WoW automatically. You can:</p>
+        <button class="btn-small" onclick="startDetect()" style="margin-bottom:12px;">Detect Again</button>
+        <p class="hint" style="margin-bottom:6px;">Or enter the path manually:</p>
+        <input type="text" id="wow-path-input" placeholder="/Applications/World of Warcraft/_retail_" />
+        <p class="hint">This should be the folder containing WTF/ and Interface/</p>
+        <button class="btn-small" id="btn-retry" onclick="retryDetect()">Use This Path</button>
       </div>
     </div>
 
@@ -639,23 +649,36 @@
       const spinnerEl = document.getElementById('addon-spinner');
       const noteEl = document.getElementById('addon-note');
 
+      // First check if addon is already installed
+      if (setupData.addonInstalled) {
+        await delay(800);
+        spinnerEl.style.display = 'none';
+        statusEl.innerHTML = '<span class="check show">&#10003;</span> Addon already installed and up to date';
+        statusEl.classList.add('success');
+        noteEl.classList.add('show');
+        setTimeout(() => showStep(3), 1200);
+        return;
+      }
+
       try {
-        const res = await fetch('/api/setup/install-addon', { method: 'POST' });
+        const body = setupData.wowPath ? JSON.stringify({ wowPath: setupData.wowPath }) : '{}';
+        const res = await fetch('/api/setup/install-addon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: body,
+        });
         const data = await res.json();
 
         await delay(1000);
         spinnerEl.style.display = 'none';
 
         if (data.success) {
-          statusEl.innerHTML = '<span class="check show">&#10003;</span> Addon installed to Interface/AddOns/WoWDashboard';
+          statusEl.innerHTML = '<span class="check show">&#10003;</span> Addon installed successfully';
           statusEl.classList.add('success');
           noteEl.classList.add('show');
         } else {
-          statusEl.innerHTML = '<span class="check show">&#10003;</span> ' + escapeHtml(data.message || 'Addon ready');
-          statusEl.classList.add('success');
-          if (data.alreadyInstalled) {
-            noteEl.classList.add('show');
-          }
+          statusEl.innerHTML = '<span class="check show">&#10007;</span> ' + escapeHtml(data.error || 'Install failed');
+          statusEl.classList.add('error');
         }
 
         setTimeout(() => showStep(3), 1500);
@@ -706,6 +729,19 @@
 
     // ── Start the wizard ──
     startWelcome();
+
+    // ── Make dots clickable ──
+    document.querySelectorAll('.dot').forEach((dot, index) => {
+      dot.addEventListener('click', () => {
+        // Only allow clicking on completed or current step
+        if (index <= currentStep) {
+          showStep(index);
+          // Re-run the step's logic if needed
+          if (index === 1) setTimeout(startDetect, 500);
+          if (index === 2) setTimeout(startAddonInstall, 500);
+        }
+      });
+    });
   </script>
 </body>
 </html>
