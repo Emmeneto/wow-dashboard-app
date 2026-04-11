@@ -1,0 +1,93 @@
+{
+  "frost-mage": {
+    "specName": "Frost Mage",
+    "enchants": {
+      "weapon": {
+        "name": "Superior Striking",
+        "stat": "+15 Intellect"
+      },
+      "head": {
+        "name": "Arcanum of the Thalassian Intellect",
+        "stat": "+20 Intellect, +15 Critical Strike"
+      },
+      "chest": {
+        "name": "Enchant Chest - Glorious Stats",
+        "stat": "+12 All Stats"
+      },
+      "legs": {
+        "name": "Brilliant Spellthread",
+        "stat": "+24 Intellect, +15 Critical Strike"
+      },
+      "boots": {
+        "name": "Enchant Boots - Minor Speed",
+        "stat": "+8 Intellect, +10% Movement Speed"
+      },
+      "wrist": {
+        "name": "Enchant Bracer - Superior Intellect",
+        "stat": "+12 Intellect"
+      },
+      "ring1": {
+        "name": "Enchant Ring - Superior Intellect",
+        "stat": "+11 Intellect"
+      },
+      "ring2": {
+        "name": "Enchant Ring - Superior Intellect",
+        "stat": "+11 Intellect"
+      },
+      "cloak": {
+        "name": "Enchant Cloak - Superior Intellect",
+        "stat": "+12 Intellect"
+      }
+    },
+    "gems": {
+      "primary": {
+        "name": "Brilliant Eversong Ruby",
+        "stat": "+16 Intellect"
+      },
+      "secondary": [
+        {
+          "name": "Potent Eversong Topaz",
+          "stat": "+8 Intellect, +8 Critical Strike"
+        },
+        {
+          "name": "Reckless Eversong Pyrestone",
+          "stat": "+8 Intellect, +8 Haste"
+        }
+      ],
+      "note": "Use Brilliant in meta socket, mix Potent and Reckless for socket bonuses"
+    },
+    "consumables": {
+      "flask": {
+        "name": "Flask of Thalassian Power",
+        "stat": "+80 Intellect",
+        "duration": "1 hour"
+      },
+      "potion": {
+        "name": "Potion of Deadly Grace",
+        "stat": "+120 Intellect for 25 seconds",
+        "usage": "Pre-pull and on cooldown during burn phases"
+      },
+      "healthPotion": {
+        "name": "Superior Healing Potion"
+      },
+      "food": {
+        "name": "Tender Shoveltusk Steak",
+        "stat": "+46 Intellect, +35 Stamina"
+      },
+      "augmentRune": {
+        "name": "Defiled Augment Rune",
+        "stat": "+18 Intellect"
+      },
+      "weaponBuff": {
+        "name": "Superior Wizard Oil",
+        "stat": "+42 Spell Power, +25 Critical Strike"
+      },
+      "tea": {
+        "name": "Silvermoon Sage Tea",
+        "stat": "+20 Intellect",
+        "note": "Stacks with food"
+      }
+    },
+    "_generatedAt": "2026-04-10T22:34:20.119Z"
+  }
+}

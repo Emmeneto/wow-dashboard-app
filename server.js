@@ -28,6 +28,40 @@ const PORT = process.env.PORT || 3000;
 const MODE = process.env.MODE || "local";
 const IS_HOSTED = MODE === "hosted";
 
+// ── Railway Proxy (Electron local → Railway for AI endpoints) ──
+const RAILWAY_URL = process.env.RAILWAY_URL || "https://wow-dashboard-production-ca94.up.railway.app";
+const RAILWAY_TIMEOUT = 5000; // 5 second timeout before falling back to local
+
+/**
+ * Proxy a request to the Railway hosted server.
+ * Returns the JSON response on success, or null on failure (timeout, offline, error).
+ * Used by the Electron app so AI features (BiS, consumables, chat) hit the shared
+ * Railway server (which holds the API key), while local-only endpoints stay local.
+ */
+async function proxyToRailway(endpoint, req) {
+  // In hosted mode, we ARE Railway — don't proxy to ourselves
+  if (IS_HOSTED) return null;
+
+  try {
+    const url = `${RAILWAY_URL}${endpoint}`;
+    const options = {
+      method: req.method,
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(RAILWAY_TIMEOUT),
+    };
+    if (req.method === 'POST' && req.body) {
+      options.body = JSON.stringify(req.body);
+    }
+    const response = await fetch(url, options);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (err) {
+    // Railway unreachable, timeout, or parse error — fall back to local
+    console.log(`Railway proxy failed for ${endpoint}: ${err.message}`);
+    return null;
+  }
+}
+
 // ── Paths ──
 
 function findWoWPath() {
@@ -68,6 +102,20 @@ if (IS_HOSTED && !fs.existsSync(DATA_DIR)) {
 }
 
 app.use(express.json({ limit: "5mb" }));
+
+// CORS for Electron app calling Railway
+app.use((req, res, next) => {
+  const allowedOrigins = ['http://localhost:3000', 'https://wow-dashboard-production-ca94.up.railway.app'];
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
 app.use(express.static(path.join(__dirname, "public")));
 
 // ── Uploaded Data Store (hosted mode) ──
@@ -558,6 +606,15 @@ app.post("/api/upload", (req, res) => {
     return res.status(400).json({ error: "userKey and characters object required" });
   }
 
+  const charKeys = Object.keys(characters);
+  if (charKeys.length > 50) {
+    return res.status(400).json({ error: "Too many characters (max 50)" });
+  }
+  const bodySize = JSON.stringify(characters).length;
+  if (bodySize > 500000) {
+    return res.status(400).json({ error: "Upload too large (max 500KB)" });
+  }
+
   const data = loadUploadedData();
 
   // Register user if new
@@ -570,7 +627,6 @@ app.post("/api/upload", (req, res) => {
   data.users[userKey].lastUpload = new Date().toISOString();
 
   // Merge character data
-  const charKeys = Object.keys(characters);
   for (const ck of charKeys) {
     if (!ck.includes("-")) continue; // skip non-character keys
     data.characters[ck] = {
@@ -669,6 +725,17 @@ app.get("/api/advice", (req, res) => {
   res.json(advice);
 });
 
+// ── Generation Rate Limiting ──
+const generationCooldown = {}; // { specKey: lastGeneratedTimestamp }
+function canGenerate(specKey) {
+  const last = generationCooldown[specKey];
+  if (!last) return true;
+  return (Date.now() - last) > 60000; // 1 minute cooldown between generations for same spec
+}
+function markGenerated(specKey) {
+  generationCooldown[specKey] = Date.now();
+}
+
 // ── Auto-generating BiS Data ──
 const BIS_FILE = path.join(__dirname, "bis-data.json");
 const bisGenerating = {}; // track in-progress generations to avoid duplicates
@@ -688,6 +755,7 @@ async function generateBisForSpec(specKey) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
   if (bisGenerating[specKey]) return null; // already generating
+  if (!canGenerate(specKey)) return null; // rate limited
 
   bisGenerating[specKey] = true;
   console.log(`Generating BiS data for ${specKey}...`);
@@ -765,6 +833,7 @@ Return ONLY the JSON object, nothing else.`
     saveBisData(allBis);
 
     console.log(`BiS data generated and saved for ${specKey}`);
+    markGenerated(specKey);
     logConversation({
       type: "bis-generation",
       spec: specKey,
@@ -780,9 +849,17 @@ Return ONLY the JSON object, nothing else.`
   }
 }
 
-// Get BiS data for a spec — auto-generates if missing
+// Get BiS data for a spec — try Railway first (shared cache), fall back to local
 app.get("/api/bis/:spec", async (req, res) => {
   const spec = req.params.spec;
+
+  // Try Railway first — benefits from shared cache across all users
+  const railwayData = await proxyToRailway(`/api/bis/${spec}`, req);
+  if (railwayData && !railwayData.error) {
+    return res.json(railwayData);
+  }
+
+  // Fall back to local processing
   const allBis = loadBisData();
 
   // Check if we have cached data that's less than 7 days old
@@ -816,6 +893,130 @@ app.get("/api/bis/:spec", async (req, res) => {
   }
 });
 
+// ── Auto-generating Consumables Data ──
+const CONSUMABLES_FILE = path.join(__dirname, "consumables-data.json");
+const consumablesGenerating = {};
+
+function loadConsumablesData() {
+  try {
+    if (fs.existsSync(CONSUMABLES_FILE)) return JSON.parse(fs.readFileSync(CONSUMABLES_FILE, "utf-8"));
+  } catch(e) {}
+  return {};
+}
+
+function saveConsumablesData(data) {
+  fs.writeFileSync(CONSUMABLES_FILE, JSON.stringify(data, null, 2));
+}
+
+async function generateConsumablesForSpec(specKey) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+  if (consumablesGenerating[specKey]) return null;
+  if (!canGenerate(specKey)) return null; // rate limited
+  consumablesGenerating[specKey] = true;
+  console.log(`Generating consumables for ${specKey}...`);
+
+  try {
+    const client = new Anthropic({ apiKey });
+    const [spec, ...classParts] = specKey.split("-");
+    const className = classParts.join(" ");
+    const specName = spec.charAt(0).toUpperCase() + spec.slice(1);
+    const classNameCap = className.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+
+    const response = await client.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2000,
+      messages: [{
+        role: "user",
+        content: `You are a WoW Midnight Season 1 expert. Generate the optimal consumables, enchants, and gems for ${specName} ${classNameCap} (PvE).
+
+Return ONLY valid JSON, no markdown, no code blocks:
+
+{
+  "specName": "${specName} ${classNameCap}",
+  "enchants": {
+    "weapon": {"name": "ENCHANT_NAME", "stat": "WHAT_IT_GIVES"},
+    "head": {"name": "ENCHANT_NAME", "stat": "WHAT_IT_GIVES"},
+    "chest": {"name": "ENCHANT_NAME", "stat": "WHAT_IT_GIVES"},
+    "legs": {"name": "ENCHANT_NAME", "stat": "WHAT_IT_GIVES"},
+    "boots": {"name": "ENCHANT_NAME", "stat": "WHAT_IT_GIVES"},
+    "wrist": {"name": "ENCHANT_NAME", "stat": "WHAT_IT_GIVES"},
+    "ring1": {"name": "ENCHANT_NAME", "stat": "WHAT_IT_GIVES"},
+    "ring2": {"name": "ENCHANT_NAME", "stat": "WHAT_IT_GIVES"},
+    "cloak": {"name": "ENCHANT_NAME", "stat": "WHAT_IT_GIVES"}
+  },
+  "gems": {
+    "primary": {"name": "GEM_NAME", "stat": "WHAT_IT_GIVES"},
+    "secondary": [
+      {"name": "GEM_NAME", "stat": "WHAT_IT_GIVES"}
+    ],
+    "note": "Mix requirement note"
+  },
+  "consumables": {
+    "flask": {"name": "FLASK_NAME", "stat": "WHAT_IT_GIVES", "duration": "DURATION"},
+    "potion": {"name": "POTION_NAME", "stat": "WHAT_IT_GIVES", "usage": "WHEN_TO_USE"},
+    "healthPotion": {"name": "POTION_NAME"},
+    "food": {"name": "FOOD_NAME", "stat": "WHAT_IT_GIVES"},
+    "augmentRune": {"name": "RUNE_NAME", "stat": "WHAT_IT_GIVES"},
+    "weaponBuff": {"name": "OIL_OR_STONE_NAME", "stat": "WHAT_IT_GIVES"},
+    "tea": {"name": "TEA_NAME", "stat": "WHAT_IT_GIVES", "note": "Stacks with food"}
+  }
+}
+
+Context: WoW Midnight Season 1 (patch 12.0, April 2026). Thalassian-themed consumables, Eversong gems. Return ONLY the JSON.`
+      }],
+    });
+
+    const text = response.content[0]?.text || "";
+    const jsonStr = text.replace(/^```json\s*/, "").replace(/\s*```$/, "").trim();
+    const result = JSON.parse(jsonStr);
+
+    const allData = loadConsumablesData();
+    allData[specKey] = { ...result, _generatedAt: new Date().toISOString() };
+    saveConsumablesData(allData);
+    markGenerated(specKey);
+    console.log(`Consumables generated for ${specKey}`);
+    return result;
+  } catch (err) {
+    console.error(`Failed to generate consumables for ${specKey}:`, err.message);
+    return null;
+  } finally {
+    delete consumablesGenerating[specKey];
+  }
+}
+
+// Get consumables for a spec — try Railway first, fall back to local
+app.get("/api/consumables/:spec", async (req, res) => {
+  const spec = req.params.spec;
+
+  // Try Railway first — shared cache
+  const railwayData = await proxyToRailway(`/api/consumables/${spec}`, req);
+  if (railwayData && !railwayData.error) {
+    return res.json(railwayData);
+  }
+
+  // Fall back to local processing
+  const allData = loadConsumablesData();
+
+  if (allData[spec]) {
+    const generatedAt = allData[spec]._generatedAt;
+    if (generatedAt) {
+      const ageDays = (Date.now() - new Date(generatedAt).getTime()) / (1000*60*60*24);
+      if (ageDays < 7) return res.json(allData[spec]);
+      generateConsumablesForSpec(spec);
+      return res.json(allData[spec]);
+    }
+    return res.json(allData[spec]);
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return res.status(404).json({ error: "No consumables data and no API key" });
+
+  const result = await generateConsumablesForSpec(spec);
+  if (result) res.json(result);
+  else res.status(503).json({ error: "Generating consumables. Refresh in a few seconds.", generating: true });
+});
+
 // ── AI Rate Limiting ──
 const aiUsage = {}; // { userKey: { date: 'YYYY-MM-DD', count: 0 } }
 
@@ -832,12 +1033,21 @@ function checkAIRateLimit(userKey, isLocal) {
 /**
  * POST /api/smart-advice - Generate AI-powered recommendations using Claude API.
  * Takes character data + BiS data and returns personalized gearing advice.
- * Requires ANTHROPIC_API_KEY environment variable.
+ * Tries Railway first (API key lives there), falls back to local if available.
  */
 app.post("/api/smart-advice", async (req, res) => {
+  // Try Railway first — the API key lives on Railway
+  const railwayData = await proxyToRailway('/api/smart-advice', req);
+  if (railwayData && !railwayData.error) {
+    return res.json(railwayData);
+  }
+
+  // Fall back to local processing (if API key is set locally)
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return res.json({ advice: null, error: "No API key configured. Set ANTHROPIC_API_KEY." });
+    // If Railway also failed, give a meaningful error
+    if (railwayData && railwayData.error) return res.json(railwayData);
+    return res.json({ advice: null, error: "Server unavailable. Check your internet connection." });
   }
 
   const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
@@ -905,18 +1115,28 @@ Give specific advice like "Run Voidspire boss 3 for your BiS legs" not generic t
     res.json({ advice: adviceText });
   } catch (err) {
     console.error("Claude API error:", err.message);
-    res.json({ advice: null, error: err.message });
+    res.json({ advice: null, error: "Failed to generate recommendations. Try again." });
   }
 });
 
 /**
  * POST /api/chat - AI chatbot endpoint for conversational gearing advice.
  * Maintains conversation context via chatHistory in the request body.
- * Requires ANTHROPIC_API_KEY environment variable.
+ * Tries Railway first (API key lives there), falls back to local if available.
  */
 app.post("/api/chat", async (req, res) => {
+  // Try Railway first — the API key and conversation logging live there
+  const railwayData = await proxyToRailway('/api/chat', req);
+  if (railwayData && !railwayData.error) {
+    return res.json(railwayData);
+  }
+
+  // Fall back to local processing (if API key is set locally)
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.json({ reply: null, error: "No API key" });
+  if (!apiKey) {
+    if (railwayData && railwayData.error) return res.json(railwayData);
+    return res.json({ reply: null, error: "Server unavailable. Check your internet connection." });
+  }
 
   const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
   const userKey = req.body.userKey || 'anonymous';
@@ -986,7 +1206,7 @@ Be concise (2-3 sentences per response). Ask follow-up questions about their ava
     res.json({ reply });
   } catch (err) {
     console.error("Chat error:", err.message);
-    res.json({ reply: null, error: err.message });
+    res.json({ reply: null, error: "Failed to get response. Try again." });
   }
 });
 
@@ -1076,6 +1296,121 @@ app.post("/api/tracker/:charKey", (req, res) => {
   saveTracker(data);
 
   res.json({ success: true, weekKey });
+});
+
+// ── Self-service Data Deletion ──
+
+app.delete("/api/user/:userKey", (req, res) => {
+  const userKey = req.params.userKey;
+
+  // Remove from uploaded characters
+  const uploaded = loadUploadedData();
+  if (uploaded.users[userKey]) {
+    const charKeys = uploaded.users[userKey].characters || [];
+    charKeys.forEach(ck => delete uploaded.characters[ck]);
+    delete uploaded.users[userKey];
+    saveUploadedData(uploaded);
+  }
+
+  // Remove from subscribers
+  try {
+    if (fs.existsSync(SUBSCRIBERS_FILE)) {
+      let subs = JSON.parse(fs.readFileSync(SUBSCRIBERS_FILE, "utf-8"));
+      subs = subs.filter(s => s !== userKey);
+      fs.writeFileSync(SUBSCRIBERS_FILE, JSON.stringify(subs, null, 2));
+    }
+  } catch(e) {}
+
+  // Remove chat logs for this user
+  try {
+    if (fs.existsSync(CHAT_LOG_FILE)) {
+      let logs = JSON.parse(fs.readFileSync(CHAT_LOG_FILE, "utf-8"));
+      logs = logs.filter(l => l.userKey !== userKey);
+      fs.writeFileSync(CHAT_LOG_FILE, JSON.stringify(logs, null, 2));
+    }
+  } catch(e) {}
+
+  res.json({ deleted: true, userKey });
+});
+
+// ── Setup Wizard Endpoints ──
+
+const SETUP_COMPLETE_FILE = path.join(__dirname, ".setup-complete");
+
+app.get("/api/setup/status", (req, res) => {
+  // Allow manual path override from query param
+  const customPath = req.query.wowPath;
+  let wowPath = null;
+
+  if (customPath) {
+    // Check if the custom path is valid
+    if (fs.existsSync(path.join(customPath, "WTF"))) {
+      wowPath = customPath;
+    }
+  } else {
+    wowPath = findWoWPath();
+  }
+
+  const addonInstalled = wowPath && fs.existsSync(
+    path.join(wowPath, "Interface", "AddOns", "WoWDashboard", "WoWDashboard.toc")
+  );
+
+  res.json({
+    wowFound: !!wowPath,
+    wowPath: wowPath || "Not found",
+    addonInstalled: !!addonInstalled,
+  });
+});
+
+app.post("/api/setup/install-addon", (req, res) => {
+  const wowPath = findWoWPath();
+  if (!wowPath) {
+    return res.json({ success: false, message: "WoW path not found" });
+  }
+
+  const addonsDir = path.join(wowPath, "Interface", "AddOns", "WoWDashboard");
+  const sourceDir = path.join(__dirname, "addon", "WoWDashboard");
+
+  // Check if addon source exists
+  if (!fs.existsSync(sourceDir)) {
+    return res.json({ success: false, message: "Addon source not found" });
+  }
+
+  // Check if already installed
+  const tocFile = path.join(addonsDir, "WoWDashboard.toc");
+  if (fs.existsSync(tocFile)) {
+    // Re-install (update) anyway
+    try {
+      const files = fs.readdirSync(sourceDir);
+      for (const file of files) {
+        fs.copyFileSync(path.join(sourceDir, file), path.join(addonsDir, file));
+      }
+      return res.json({ success: true, alreadyInstalled: true, message: "Addon updated" });
+    } catch (err) {
+      return res.json({ success: false, message: err.message });
+    }
+  }
+
+  // Fresh install
+  try {
+    if (!fs.existsSync(addonsDir)) fs.mkdirSync(addonsDir, { recursive: true });
+    const files = fs.readdirSync(sourceDir);
+    for (const file of files) {
+      fs.copyFileSync(path.join(sourceDir, file), path.join(addonsDir, file));
+    }
+    res.json({ success: true, message: "Addon installed" });
+  } catch (err) {
+    res.json({ success: false, message: err.message });
+  }
+});
+
+app.post("/api/setup/complete", (req, res) => {
+  try {
+    fs.writeFileSync(SETUP_COMPLETE_FILE, new Date().toISOString());
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
 });
 
 // ── Server Start ──

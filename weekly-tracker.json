@@ -1,0 +1,14 @@
+{
+  "Emmeneto-Tarren Mill": {
+    "2026-04-08": {
+      "prey1": true,
+      "_manualOverrides": {
+        "prey1": true,
+        "prey2": true,
+        "prey3": true
+      },
+      "prey2": true,
+      "prey3": true
+    }
+  }
+}

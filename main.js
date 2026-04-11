@@ -114,6 +114,13 @@ function startSync(wowPath) {
   }
 }
 
+// ── First-run detection ──
+const SETUP_COMPLETE_FILE = path.join(__dirname, ".setup-complete");
+
+function isFirstRun() {
+  return !fs.existsSync(SETUP_COMPLETE_FILE);
+}
+
 // ── Create main window ──
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -132,7 +139,11 @@ function createWindow() {
     autoHideMenuBar: true,       // hide menu bar on Windows
   });
 
-  mainWindow.loadURL(`http://localhost:${PORT}`);
+  if (isFirstRun()) {
+    mainWindow.loadURL(`http://localhost:${PORT}/setup.html`);
+  } else {
+    mainWindow.loadURL(`http://localhost:${PORT}`);
+  }
 
   mainWindow.on("closed", () => {
     mainWindow = null;

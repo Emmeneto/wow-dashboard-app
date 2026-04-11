@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WoW Dashboard - Setup</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@400;700&family=Cinzel:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #080810;
+      color: #e0ddd4;
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* ── Ambient background effects ── */
+    body::before {
+      content: '';
+      position: fixed;
+      top: -50%; left: -50%;
+      width: 200%; height: 200%;
+      background: radial-gradient(ellipse at 30% 20%, rgba(163, 53, 238, 0.06) 0%, transparent 50%),
+                  radial-gradient(ellipse at 70% 80%, rgba(255, 215, 0, 0.04) 0%, transparent 50%);
+      animation: ambientDrift 20s ease-in-out infinite alternate;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    @keyframes ambientDrift {
+      0% { transform: translate(0, 0) rotate(0deg); }
+      100% { transform: translate(30px, -20px) rotate(3deg); }
+    }
+
+    /* ── Wizard container ── */
+    .wizard {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 600px;
+      padding: 40px;
+      text-align: center;
+    }
+
+    /* ── Steps (hidden by default) ── */
+    .step {
+      display: none;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .step.active {
+      display: block;
+    }
+
+    .step.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* ── Step 1: Welcome ── */
+    .logo-container {
+      margin-bottom: 32px;
+    }
+
+    .logo-container img {
+      width: 140px;
+      height: 140px;
+      filter: drop-shadow(0 0 30px rgba(163, 53, 238, 0.3));
+      animation: logoPulse 3s ease-in-out infinite;
+    }
+
+    @keyframes logoPulse {
+      0%, 100% { filter: drop-shadow(0 0 30px rgba(163, 53, 238, 0.3)); }
+      50% { filter: drop-shadow(0 0 50px rgba(163, 53, 238, 0.5)); }
+    }
+
+    .title {
+      font-family: 'Cinzel Decorative', serif;
+      font-size: 36px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #ffe066, #ffd700, #c8a800);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 12px;
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      font-family: 'Cinzel', serif;
+      font-size: 16px;
+      color: #a09888;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    /* ── Step 2 & 3: Status steps ── */
+    .status-icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .spinner {
+      width: 48px;
+      height: 48px;
+      border: 3px solid rgba(255, 215, 0, 0.15);
+      border-top-color: #ffd700;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .status-title {
+      font-family: 'Cinzel', serif;
+      font-size: 20px;
+      color: #e0ddd4;
+      margin-bottom: 16px;
+    }
+
+    .status-detail {
+      font-size: 14px;
+      color: #8a8578;
+      min-height: 24px;
+      transition: all 0.4s ease;
+    }
+
+    .status-detail.success {
+      color: #4ade80;
+    }
+
+    .status-detail.error {
+      color: #f87171;
+    }
+
+    .status-detail .check {
+      display: inline-block;
+      opacity: 0;
+      transform: scale(0.5);
+      transition: all 0.3s ease;
+    }
+
+    .status-detail .check.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    /* Manual path input (if WoW not found) */
+    .manual-path {
+      display: none;
+      margin-top: 20px;
+      animation: fadeIn 0.4s ease;
+    }
+
+    .manual-path.show {
+      display: block;
+    }
+
+    .manual-path input {
+      width: 100%;
+      padding: 12px 16px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 215, 0, 0.2);
+      border-radius: 8px;
+      color: #e0ddd4;
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.3s;
+    }
+
+    .manual-path input:focus {
+      border-color: rgba(255, 215, 0, 0.5);
+    }
+
+    .manual-path input::placeholder {
+      color: #5a5548;
+    }
+
+    .manual-path .hint {
+      font-size: 12px;
+      color: #5a5548;
+      margin-top: 8px;
+    }
+
+    .btn-small {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 8px 24px;
+      background: rgba(255, 215, 0, 0.1);
+      border: 1px solid rgba(255, 215, 0, 0.3);
+      border-radius: 6px;
+      color: #ffd700;
+      font-family: 'Cinzel', serif;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .btn-small:hover {
+      background: rgba(255, 215, 0, 0.2);
+      border-color: rgba(255, 215, 0, 0.5);
+    }
+
+    /* Addon note */
+    .addon-note {
+      display: none;
+      margin-top: 16px;
+      padding: 12px 16px;
+      background: rgba(163, 53, 238, 0.08);
+      border: 1px solid rgba(163, 53, 238, 0.2);
+      border-radius: 8px;
+      font-size: 13px;
+      color: #c4a0e8;
+      animation: fadeIn 0.4s ease;
+    }
+
+    .addon-note.show {
+      display: block;
+    }
+
+    .addon-note code {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'Consolas', monospace;
+      color: #ffd700;
+    }
+
+    /* ── Step 4: Ready ── */
+    .ready-title {
+      font-family: 'Cinzel Decorative', serif;
+      font-size: 32px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #ffe066, #ffd700, #c8a800);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 12px;
+    }
+
+    .ready-subtitle {
+      font-size: 15px;
+      color: #a09888;
+      line-height: 1.6;
+      margin-bottom: 32px;
+    }
+
+    .ready-subtitle code {
+      background: rgba(255, 255, 255, 0.08);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'Consolas', monospace;
+      color: #ffd700;
+    }
+
+    .btn-launch {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px 48px;
+      background: linear-gradient(135deg, #ffd700, #c8a800);
+      border: none;
+      border-radius: 12px;
+      color: #080810;
+      font-family: 'Cinzel', serif;
+      font-size: 18px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 24px rgba(255, 215, 0, 0.25);
+      letter-spacing: 0.5px;
+    }
+
+    .btn-launch:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 32px rgba(255, 215, 0, 0.4);
+      background: linear-gradient(135deg, #ffe44d, #ffd700);
+    }
+
+    .btn-launch:active {
+      transform: translateY(0);
+    }
+
+    .btn-launch .arrow {
+      font-size: 20px;
+      transition: transform 0.3s;
+    }
+
+    .btn-launch:hover .arrow {
+      transform: translateX(4px);
+    }
+
+    /* Features preview */
+    .features-section {
+      margin-top: 40px;
+    }
+
+    .features-label {
+      font-family: 'Cinzel', serif;
+      font-size: 13px;
+      color: #5a5548;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      margin-bottom: 20px;
+    }
+
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .feature-card {
+      padding: 20px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 215, 0, 0.08);
+      border-radius: 10px;
+      transition: all 0.3s;
+    }
+
+    .feature-card:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 215, 0, 0.15);
+    }
+
+    .feature-icon {
+      font-size: 28px;
+      margin-bottom: 10px;
+      display: block;
+    }
+
+    .feature-name {
+      font-family: 'Cinzel', serif;
+      font-size: 12px;
+      color: #c8c0b0;
+      line-height: 1.4;
+    }
+
+    /* ── Progress dots ── */
+    .progress-dots {
+      position: fixed;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 10px;
+      z-index: 10;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(255, 215, 0, 0.15);
+      transition: all 0.4s ease;
+    }
+
+    .dot.active {
+      background: #ffd700;
+      box-shadow: 0 0 10px rgba(255, 215, 0, 0.4);
+    }
+
+    .dot.done {
+      background: rgba(255, 215, 0, 0.5);
+    }
+
+    /* ── Utility animations ── */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Particles (subtle background sparkle) ── */
+    .particles {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+
+    .particle {
+      position: absolute;
+      width: 2px;
+      height: 2px;
+      background: rgba(255, 215, 0, 0.3);
+      border-radius: 50%;
+      animation: float linear infinite;
+    }
+
+    @keyframes float {
+      0% { transform: translateY(100vh) scale(0); opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { transform: translateY(-10vh) scale(1); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Background particles -->
+  <div class="particles" id="particles"></div>
+
+  <!-- Progress dots -->
+  <div class="progress-dots">
+    <div class="dot active" data-step="0"></div>
+    <div class="dot" data-step="1"></div>
+    <div class="dot" data-step="2"></div>
+    <div class="dot" data-step="3"></div>
+  </div>
+
+  <div class="wizard">
+    <!-- Step 1: Welcome -->
+    <div class="step active" id="step-welcome">
+      <div class="logo-container">
+        <img src="/logo.svg" alt="WoW Dashboard" />
+      </div>
+      <h1 class="title">WoW Dashboard</h1>
+      <p class="subtitle">AI-Powered Gearing Companion</p>
+    </div>
+
+    <!-- Step 2: Detecting WoW -->
+    <div class="step" id="step-detect">
+      <div class="status-icon">
+        <div class="spinner" id="detect-spinner"></div>
+      </div>
+      <h2 class="status-title">Detecting World of Warcraft</h2>
+      <p class="status-detail" id="detect-status">Scanning common installation paths...</p>
+      <div class="manual-path" id="manual-path">
+        <input type="text" id="wow-path-input" placeholder="C:/Program Files (x86)/World of Warcraft/_retail_" />
+        <p class="hint">Enter the path to your WoW _retail_ folder</p>
+        <button class="btn-small" id="btn-retry" onclick="retryDetect()">Retry</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Installing Addon -->
+    <div class="step" id="step-addon">
+      <div class="status-icon">
+        <div class="spinner" id="addon-spinner"></div>
+      </div>
+      <h2 class="status-title">Installing Addon</h2>
+      <p class="status-detail" id="addon-status">Installing WoW Dashboard addon...</p>
+      <div class="addon-note" id="addon-note">
+        Type <code>/reload</code> in WoW to activate the addon
+      </div>
+    </div>
+
+    <!-- Step 4: Ready -->
+    <div class="step" id="step-ready">
+      <h1 class="ready-title">You're All Set!</h1>
+      <p class="ready-subtitle">
+        Open WoW, type <code>/reload</code>, and your dashboard<br/>will start tracking automatically.
+      </p>
+      <button class="btn-launch" id="btn-launch" onclick="launchDashboard()">
+        Launch Dashboard <span class="arrow">&rarr;</span>
+      </button>
+      <div class="features-section">
+        <p class="features-label">What you'll see</p>
+        <div class="features-grid">
+          <div class="feature-card">
+            <span class="feature-icon">&#128203;</span>
+            <span class="feature-name">Weekly Gearing Tracker</span>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon">&#129302;</span>
+            <span class="feature-name">AI-Powered Recommendations</span>
+          </div>
+          <div class="feature-card">
+            <span class="feature-icon">&#9876;</span>
+            <span class="feature-name">Best-in-Slot Comparison</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ── State ──
+    let currentStep = 0;
+    let setupData = {};
+
+    // ── Create background particles ──
+    (function initParticles() {
+      const container = document.getElementById('particles');
+      for (let i = 0; i < 20; i++) {
+        const p = document.createElement('div');
+        p.className = 'particle';
+        p.style.left = Math.random() * 100 + '%';
+        p.style.animationDuration = (8 + Math.random() * 12) + 's';
+        p.style.animationDelay = (Math.random() * 10) + 's';
+        p.style.width = p.style.height = (1 + Math.random() * 2) + 'px';
+        container.appendChild(p);
+      }
+    })();
+
+    // ── Step transitions ──
+    function showStep(index) {
+      // Hide current step
+      const steps = document.querySelectorAll('.step');
+      steps.forEach(s => {
+        s.classList.remove('visible');
+        setTimeout(() => s.classList.remove('active'), 300);
+      });
+
+      // Update progress dots
+      const dots = document.querySelectorAll('.dot');
+      dots.forEach((d, i) => {
+        d.classList.remove('active', 'done');
+        if (i < index) d.classList.add('done');
+        if (i === index) d.classList.add('active');
+      });
+
+      // Show new step after fade-out
+      setTimeout(() => {
+        steps[index].classList.add('active');
+        // Trigger reflow for transition
+        void steps[index].offsetWidth;
+        requestAnimationFrame(() => {
+          steps[index].classList.add('visible');
+        });
+        currentStep = index;
+      }, 350);
+    }
+
+    // ── Step 1: Welcome (auto-advance after 2s) ──
+    function startWelcome() {
+      const step = document.getElementById('step-welcome');
+      step.classList.add('active');
+      // Trigger reflow for transition
+      void step.offsetWidth;
+      requestAnimationFrame(() => {
+        step.classList.add('visible');
+      });
+
+      setTimeout(() => {
+        showStep(1);
+        setTimeout(startDetect, 500);
+      }, 2000);
+    }
+
+    // ── Step 2: Detect WoW ──
+    async function startDetect() {
+      const statusEl = document.getElementById('detect-status');
+      const spinnerEl = document.getElementById('detect-spinner');
+      const manualEl = document.getElementById('manual-path');
+
+      try {
+        const res = await fetch('/api/setup/status');
+        const data = await res.json();
+        setupData = data;
+
+        // Pause briefly to show the scanning animation
+        await delay(1000);
+
+        spinnerEl.style.display = 'none';
+
+        if (data.wowFound) {
+          statusEl.innerHTML = '<span class="check show">&#10003;</span> Found at ' + escapeHtml(data.wowPath);
+          statusEl.classList.add('success');
+
+          setTimeout(() => {
+            showStep(2);
+            setTimeout(startAddonInstall, 500);
+          }, 1200);
+        } else {
+          statusEl.innerHTML = '<span class="check show">&#10007;</span> WoW installation not found';
+          statusEl.classList.add('error');
+          manualEl.classList.add('show');
+        }
+      } catch (err) {
+        await delay(1000);
+        spinnerEl.style.display = 'none';
+        statusEl.innerHTML = '<span class="check show">&#10007;</span> Could not check WoW installation';
+        statusEl.classList.add('error');
+        manualEl.classList.add('show');
+      }
+    }
+
+    // ── Manual retry with custom path ──
+    async function retryDetect() {
+      const pathInput = document.getElementById('wow-path-input').value.trim();
+      if (!pathInput) return;
+
+      const statusEl = document.getElementById('detect-status');
+      const spinnerEl = document.getElementById('detect-spinner');
+      const manualEl = document.getElementById('manual-path');
+
+      statusEl.textContent = 'Checking path...';
+      statusEl.className = 'status-detail';
+      spinnerEl.style.display = 'block';
+      manualEl.classList.remove('show');
+
+      try {
+        const res = await fetch('/api/setup/status?wowPath=' + encodeURIComponent(pathInput));
+        const data = await res.json();
+        setupData = data;
+
+        await delay(800);
+        spinnerEl.style.display = 'none';
+
+        if (data.wowFound) {
+          statusEl.innerHTML = '<span class="check show">&#10003;</span> Found at ' + escapeHtml(data.wowPath);
+          statusEl.classList.add('success');
+
+          setTimeout(() => {
+            showStep(2);
+            setTimeout(startAddonInstall, 500);
+          }, 1200);
+        } else {
+          statusEl.innerHTML = '<span class="check show">&#10007;</span> WoW not found at that path';
+          statusEl.classList.add('error');
+          manualEl.classList.add('show');
+        }
+      } catch (err) {
+        spinnerEl.style.display = 'none';
+        statusEl.innerHTML = '<span class="check show">&#10007;</span> Error checking path';
+        statusEl.classList.add('error');
+        manualEl.classList.add('show');
+      }
+    }
+
+    // ── Step 3: Install Addon ──
+    async function startAddonInstall() {
+      const statusEl = document.getElementById('addon-status');
+      const spinnerEl = document.getElementById('addon-spinner');
+      const noteEl = document.getElementById('addon-note');
+
+      try {
+        const res = await fetch('/api/setup/install-addon', { method: 'POST' });
+        const data = await res.json();
+
+        await delay(1000);
+        spinnerEl.style.display = 'none';
+
+        if (data.success) {
+          statusEl.innerHTML = '<span class="check show">&#10003;</span> Addon installed to Interface/AddOns/WoWDashboard';
+          statusEl.classList.add('success');
+          noteEl.classList.add('show');
+        } else {
+          statusEl.innerHTML = '<span class="check show">&#10003;</span> ' + escapeHtml(data.message || 'Addon ready');
+          statusEl.classList.add('success');
+          if (data.alreadyInstalled) {
+            noteEl.classList.add('show');
+          }
+        }
+
+        setTimeout(() => showStep(3), 1500);
+      } catch (err) {
+        await delay(1000);
+        spinnerEl.style.display = 'none';
+        statusEl.innerHTML = '<span class="check show">&#10003;</span> Addon setup will complete on next launch';
+        statusEl.classList.add('success');
+        setTimeout(() => showStep(3), 1500);
+      }
+    }
+
+    // ── Step 4: Launch Dashboard ──
+    async function launchDashboard() {
+      const btn = document.getElementById('btn-launch');
+      btn.textContent = 'Loading...';
+      btn.disabled = true;
+
+      try {
+        await fetch('/api/setup/complete', { method: 'POST' });
+      } catch (e) {
+        // Continue even if marking complete fails
+      }
+
+      window.location.href = '/';
+    }
+
+    // ── Helpers ──
+    function delay(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // ── Enter key triggers retry on path input ──
+    document.addEventListener('DOMContentLoaded', () => {
+      const input = document.getElementById('wow-path-input');
+      if (input) {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') retryDetect();
+        });
+      }
+    });
+
+    // ── Start the wizard ──
+    startWelcome();
+  </script>
+</body>
+</html>
