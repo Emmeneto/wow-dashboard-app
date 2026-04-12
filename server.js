@@ -1316,43 +1316,6 @@ app.delete("/api/user/:userKey", (req, res) => {
   res.json({ deleted: true, userKey });
 });
 
-// ── Setup Wizard Endpoints ──
-
-app.get("/api/setup/status", (req, res) => {
-  const wowPath = findWoWPath();
-  const customPath = req.query.wowPath;
-  const effectivePath = customPath || wowPath;
-  const addonInstalled = effectivePath && fs.existsSync(path.join(effectivePath, "Interface", "AddOns", "WoWDashboard", "WoWDashboard.toc"));
-  res.json({
-    wowFound: !!effectivePath,
-    wowPath: effectivePath || "Not found",
-    addonInstalled: !!addonInstalled,
-  });
-});
-
-app.post("/api/setup/install-addon", (req, res) => {
-  const wowPath = req.body.wowPath || findWoWPath();
-  if (!wowPath) return res.status(400).json({ error: "WoW not found" });
-  const addonsDir = path.join(wowPath, "Interface", "AddOns", "WoWDashboard");
-  const sourceDir = path.join(__dirname, "addon", "WoWDashboard");
-  try {
-    if (!fs.existsSync(addonsDir)) fs.mkdirSync(addonsDir, { recursive: true });
-    const files = fs.readdirSync(sourceDir);
-    for (const file of files) {
-      fs.copyFileSync(path.join(sourceDir, file), path.join(addonsDir, file));
-    }
-    res.json({ success: true, path: addonsDir });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/api/setup/complete", (req, res) => {
-  const sentinelFile = path.join(__dirname, ".setup-complete");
-  fs.writeFileSync(sentinelFile, new Date().toISOString());
-  res.json({ ok: true });
-});
-
 // ── Server Start ──
 
 app.listen(PORT, () => {
