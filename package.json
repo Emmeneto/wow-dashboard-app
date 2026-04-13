@@ -1,6 +1,6 @@
 {
   "name": "wow-dashboard-app",
-  "version": "1.0.0",
+  "version": "1.2.1",
   "description": "WoW Dashboard - AI-Powered Gearing Companion",
   "main": "main.js",
   "scripts": {

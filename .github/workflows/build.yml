@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -19,9 +22,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
-          path: |
-            dist/*.exe
-            dist/win-unpacked/**
+          path: dist/*.exe
 
   build-mac:
     runs-on: macos-latest
@@ -36,3 +37,37 @@ jobs:
         with:
           name: mac-installer
           path: dist/*.dmg
+
+  release:
+    needs: [build-windows, build-mac]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: artifacts/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: mac-installer
+          path: artifacts/mac
+      - name: List artifacts
+        run: find artifacts -type f
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: WoW Dashboard ${{ github.ref_name }}
+          body: |
+            ## WoW Dashboard - AI-Powered Gearing Companion
+
+            ### Download
+            - **Windows**: Download the `.exe` file below and run it
+            - **Mac**: Download the `.dmg` file below, open it, and drag to Applications
+
+            ### What's included
+            - Auto-installs the WoW addon on launch
+            - Syncs your character data automatically
+            - AI-powered gearing recommendations
+            - Best-in-Slot gear tracking for Midnight Season 1
+          files: |
+            artifacts/windows/*.exe
+            artifacts/mac/*.dmg
