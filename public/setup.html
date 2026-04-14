@@ -568,6 +568,12 @@
       const spinnerEl = document.getElementById('detect-spinner');
       const manualEl = document.getElementById('manual-path');
 
+      // Reset UI state for re-runs
+      spinnerEl.style.display = 'block';
+      statusEl.textContent = 'Scanning common installation paths...';
+      statusEl.className = 'status-detail';
+      manualEl.classList.remove('show');
+
       try {
         const res = await fetch('/api/setup/status');
         const data = await res.json();

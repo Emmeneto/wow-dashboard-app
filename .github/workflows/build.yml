@@ -61,7 +61,7 @@ jobs:
 
             ### Download
             - **Windows**: Download the `.exe` file below and run it
-            - **Mac**: Download the `.dmg` file below, open it, and drag to Applications
+            - **Mac**: Download the `.dmg` file below, open it, and drag to Applications. If macOS says it's "damaged", open Terminal and run: `xattr -cr "/Applications/WoW Dashboard.app"`
 
             ### What's included
             - Auto-installs the WoW addon on launch

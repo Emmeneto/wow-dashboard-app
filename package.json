@@ -47,7 +47,8 @@
     "mac": {
       "target": "dmg",
       "icon": "public/icon.icns",
-      "category": "public.app-category.games"
+      "category": "public.app-category.games",
+      "identity": null
     },
     "nsis": {
       "oneClick": true,
